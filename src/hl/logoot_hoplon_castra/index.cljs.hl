@@ -1,0 +1,44 @@
+(page "index.html"
+  (:require
+    [tailrecursion.hoplon.reload :refer [reload-all]])
+  (:require-macros 
+    [logoot.document :as d]))
+
+(reload-all 1000)
+
+(defmethod on! :click-me
+  [elem _ callback]
+  (on! elem :click
+       #(callback %)))
+
+
+(html
+  (head)
+  (body
+    (h1 :on-load #(js/alert "eu") "Hello, World!")
+    (textarea :id "code" :name "code" "type here, see a summary of the document b-tree below")))
+
+(with-init! 
+  (js/CodeMirror.fromTextArea (by-id "code") (js-obj 
+                                              :lineNumbers true 
+                                              :lineWrapping true)))
+
+; ; (def editor , )
+; (page "index.html"
+;   (:require
+;     [logoot-hoplon-castra.rpc :as rpc]
+;     [tailrecursion.hoplon.reload :refer [reload-all]]
+;     [clojure.browser.repl :as repl]
+;     [logoot.document :as d]))
+
+; (reload-all 1000)
+
+; (rpc/init)
+
+; (with-init! 
+;   (repl/connect "http://localhost:9000/repl"))
+
+; (html
+;   (head)
+;   (body
+;     (h1 (text "Hello, Hoplon and Castra! ~{rpc/random-number} ~{(d/new-document)}"))))
