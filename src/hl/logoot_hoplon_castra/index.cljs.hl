@@ -1,27 +1,124 @@
+;; ns tailrecursion.hoplon.app-pages._index_DOT_html
 (page "index.html"
   (:require
-    [tailrecursion.hoplon.reload :refer [reload-all]])
-  (:require-macros 
-    [logoot.document :as d]))
+    [tailrecursion.hoplon.reload :refer [reload-all]]
+    [logoot.document :as ld]
+    [logoot.editors.code-mirror :as cm]
+    [dly.core.debug :as debug]))
 
 (reload-all 1000)
 
-(defmethod on! :click-me
-  [elem _ callback]
-  (on! elem :click
-       #(callback %)))
-
-
 (html
-  (head)
+  (head
+    (title "XYZ")
+    (link {:href "codemirror.css" :rel "stylesheet"})
+    (script {:src "codemirror.js"}))
   (body
     (h1 :on-load #(js/alert "eu") "Hello, World!")
-    (textarea :id "code" :name "code" "type here, see a summary of the document b-tree below")))
+    (textarea :id "code1" :name "code1" "")
+    (textarea :id "code2" :name "code2" "")))
+
+(def document1 (atom (ld/new-document)))
+(def document2 (atom (ld/new-document)))
+
+(defn log 
+  [x]
+  (->> x
+       clj->js
+       (.log js/console))
+  x)
+
+(defn pos->vec 
+  [pos]
+  [(.-line pos) (.-ch pos)])
+
+(defn pos
+  [change field]
+  (-> change
+      (get field)
+      pos->vec))
+
+(defn get-document1
+  []
+  @document1)
+
+(defn get-document2
+  []
+  @document2)
+
+(def editors (atom {})) ; Ugh!
+(def documents (atom {}))
+
+(defn apply-changes
+  [editor document changes]
+  (.log js/console editor)
+  ; (log document)
+  ; (log changes)
+  (let [inserts (:insert changes)
+        document' (ld/merge-inserts @document inserts)
+        deletes (:delete changes)]
+    ; (log (get-document1))
+    ; (log (ffirst inserts))
+    ; (log (cm/pid->pos document (ffirst inserts)))
+    ; (log {:inserts inserts})
+    (when (seq inserts)
+      (doseq [[pid content] inserts
+              :let [[line ch] (cm/pid->pos document' pid)]]
+        (log "insert")
+        ; (log {:pid pid})
+        ; (log {:pos {:line line :ch ch}})
+        (.replaceRange editor content (CodeMirror.Pos. line ch) nil "+merge")))
+    
+    (let [document'' (loop [[pid & deletes'] deletes d document']
+                       (if pid
+                          (let [[line ch] (cm/pid->pos d pid)
+                                [line' ch'] (cm/pid->pos d (ld/next-pid d pid))]
+                            (log "delete")
+                            (.replaceRange editor "" (CodeMirror.Pos. line ch) (CodeMirror.Pos. line' ch') "+merge")
+                            (recur deletes' (ld/merge-deletes d [pid])))
+                          d))]
+      (reset! document document''))
+
+    
+    (log (ld/display @document))
+    ; (when (seq deletes)
+    ;   (doseq [pid deletes
+    ;           :let [[line ch] (cm/pid->pos document' pid)
+    ;                 [line' ch'] [line (inc ch)]]]
+    ;     (.replaceRange editor "" (CodeMirror.Pos. line ch) (CodeMirror.Pos. line' ch') "+merge")))
+    ))
+
+(defn handle-change 
+  [document other-editor-dom-id [new-document changes]]
+  (reset! document new-document)
+  (apply-changes (get @editors other-editor-dom-id) (get @documents other-editor-dom-id) changes))
+
+(defn set-up-editor
+  [dom-id document site other-editor-dom-id]
+  (let [editor (js/CodeMirror.fromTextArea (by-id dom-id) (js-obj 
+                                                            :lineNumbers true 
+                                                            :lineWrapping true))]
+    (swap! editors #(assoc % dom-id editor))
+    (swap! documents #(assoc % dom-id document))
+    (.on editor "change" (fn [cm change]
+                           (let [change' (js->clj change)]
+                             ; (log (pos change' "from"))
+                             (when-not (= "+merge" (change' "origin"))
+                               (ld/with-site-fn site
+                                #(if-let [text (change' "text")]
+                                 (handle-change document other-editor-dom-id (cm/insert @document
+                                                            (pos change' "from") 
+                                                            (pos change' "to")
+                                                            text))
+                                 
+                                 (handle-change document other-editor-dom-id (cm/delete @document
+                                                            (pos change' "from")
+                                                            (pos change' "to")))))))))))
 
 (with-init! 
-  (js/CodeMirror.fromTextArea (by-id "code") (js-obj 
-                                              :lineNumbers true 
-                                              :lineWrapping true)))
+  (with-timeout 1000 ; FIXME use document ready
+                (set-up-editor "code1" document1 1 "code2")
+                (set-up-editor "code2" document2 2 "code1")))
 
 ; ; (def editor , )
 ; (page "index.html"

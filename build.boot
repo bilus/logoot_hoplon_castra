@@ -54,4 +54,6 @@
 (deftask production
   "Build logoot_hoplon_castra for production."
   []
-  (hoplon {:optimizations :advanced}))
+  (comp (watch) (cljx) (hoplon {:optimizations :advanced
+                                :prerender false
+                                :externs ["resources/externs.js"]}) (c/castra-dev-server 'logoot-hoplon-castra.api)))
