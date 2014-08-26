@@ -11,10 +11,15 @@
 (defc error nil)
 (defc loading [])
 
+
 (defc= random-number (get state :random))
 
 (def get-state
   (mkremote 'logoot-hoplon-castra.api/get-state state error loading))
+
+(defc etag nil)
+(def push-changes
+  (mkremote 'logoot-hoplon-castra.api/push-changes etag error loading))
 
 (defn init []
   (get-state)

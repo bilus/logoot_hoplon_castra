@@ -4,7 +4,11 @@
     [tailrecursion.hoplon.reload :refer [reload-all]]
     [logoot.document :as ld]
     [logoot.editors.code-mirror :as cm]
-    [dly.core.debug :as debug]))
+    [logoot.edn :as edn]
+    [dly.core.debug :as debug]
+    [logoot-hoplon-castra.rpc :as rpc]))
+
+(rpc/init)
 
 (reload-all 1000)
 
@@ -51,22 +55,14 @@
 
 (defn apply-changes
   [editor document changes]
-  (.log js/console editor)
-  ; (log document)
-  ; (log changes)
+  (rpc/push-changes (edn/changes->map changes))
   (let [inserts (:insert changes)
         document' (ld/merge-inserts @document inserts)
         deletes (:delete changes)]
-    ; (log (get-document1))
-    ; (log (ffirst inserts))
-    ; (log (cm/pid->pos document (ffirst inserts)))
-    ; (log {:inserts inserts})
     (when (seq inserts)
       (doseq [[pid content] inserts
               :let [[line ch] (cm/pid->pos document' pid)]]
         (log "insert")
-        ; (log {:pid pid})
-        ; (log {:pos {:line line :ch ch}})
         (.replaceRange editor content (CodeMirror.Pos. line ch) nil "+merge")))
     
     (let [document'' (loop [[pid & deletes'] deletes d document']
@@ -80,13 +76,7 @@
       (reset! document document''))
 
     
-    (log (ld/display @document))
-    ; (when (seq deletes)
-    ;   (doseq [pid deletes
-    ;           :let [[line ch] (cm/pid->pos document' pid)
-    ;                 [line' ch'] [line (inc ch)]]]
-    ;     (.replaceRange editor "" (CodeMirror.Pos. line ch) (CodeMirror.Pos. line' ch') "+merge")))
-    ))
+    (log (ld/display @document))))
 
 (defn handle-change 
   [document other-editor-dom-id [new-document changes]]
