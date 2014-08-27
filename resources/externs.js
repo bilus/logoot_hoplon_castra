@@ -2,6 +2,7 @@ var CodeMirror = {};
 CodeMirror.fromTextArea = function() {};
 CodeMirror.on = function() {};
 CodeMirror.replaceRange = function() {};
+CodeMirror.setValue = function() {};
 CodeMirror.Pos = {};
 CodeMirror.Pos.from = {};
 CodeMirror.Pos.from.ch = 0;

@@ -4,13 +4,20 @@
     [tailrecursion.hoplon.reload :refer [reload-all]]
     [logoot.document :as ld]
     [logoot.editors.code-mirror :as cm]
+    [logoot.pid :as pid]
     [logoot.edn :as edn]
     [dly.core.debug :as debug]
     [logoot-hoplon-castra.rpc :as rpc]))
 
-(rpc/init)
-
 (reload-all 1000)
+
+(def document1 (atom (ld/new-document)))
+(def document2 (atom (ld/new-document)))
+(def editors (atom {})) ; Ugh!
+(def initialized (atom false))
+
+
+(declare clear-all)
 
 (html
   (head
@@ -19,18 +26,14 @@
     (script {:src "codemirror.js"}))
   (body
     (h1 :on-load #(js/alert "eu") "Hello, World!")
+    (p (button :on-click #(clear-all) "Clear!"))
     (textarea :id "code1" :name "code1" "")
-    (textarea :id "code2" :name "code2" "")))
+    (textarea :id "code2" :name "code2" "")
+    (p (text "ETAG: ~{rpc/etag}"))))
 
-(def document1 (atom (ld/new-document)))
-(def document2 (atom (ld/new-document)))
-
-(defn log 
+(defn some? 
   [x]
-  (->> x
-       clj->js
-       (.log js/console))
-  x)
+  (not (nil? x)))
 
 (defn pos->vec 
   [pos]
@@ -50,82 +53,79 @@
   []
   @document2)
 
-(def editors (atom {})) ; Ugh!
-(def documents (atom {}))
-
-(defn apply-changes
-  [editor document changes]
-  (rpc/push-changes (edn/changes->map changes))
+(defn merge-changes
+  [editor ignore-site document changes]
   (let [inserts (:insert changes)
         document' (ld/merge-inserts @document inserts)
-        deletes (:delete changes)]
+        deletes (:delete changes)
+        ignore? (fn [pid] (and 
+                            (some? ignore-site) 
+                            (= (pid/pid-site pid) ignore-site)))]
     (when (seq inserts)
       (doseq [[pid content] inserts
-              :let [[line ch] (cm/pid->pos document' pid)]]
-        (log "insert")
+              :let [[line ch] (cm/pid->pos document' pid)]
+              :when (not (ignore? pid))]
         (.replaceRange editor content (CodeMirror.Pos. line ch) nil "+merge")))
     
-    (let [document'' (loop [[pid & deletes'] deletes d document']
-                       (if pid
+    (when (seq deletes)
+      (let [document'' (loop [[pid & deletes'] deletes d document']
+                         (if pid
                           (let [[line ch] (cm/pid->pos d pid)
                                 [line' ch'] (cm/pid->pos d (ld/next-pid d pid))]
-                            (log "delete")
-                            (.replaceRange editor "" (CodeMirror.Pos. line ch) (CodeMirror.Pos. line' ch') "+merge")
+                            (when-not (ignore? pid)
+                              (.replaceRange editor "" (CodeMirror.Pos. line ch) (CodeMirror.Pos. line' ch') "+merge"))
                             (recur deletes' (ld/merge-deletes d [pid])))
                           d))]
-      (reset! document document''))
+      (reset! document document'')))
 
     
-    (log (ld/display @document))))
+    (println "document..." (ld/display @document))))
 
 (defn handle-change 
-  [document other-editor-dom-id [new-document changes]]
+  [document [new-document changes]]
   (reset! document new-document)
-  (apply-changes (get @editors other-editor-dom-id) (get @documents other-editor-dom-id) changes))
+  (rpc/push-changes (edn/changes->map changes)))
 
 (defn set-up-editor
-  [dom-id document site other-editor-dom-id]
+  [dom-id document site]
   (let [editor (js/CodeMirror.fromTextArea (by-id dom-id) (js-obj 
                                                             :lineNumbers true 
                                                             :lineWrapping true))]
     (swap! editors #(assoc % dom-id editor))
-    (swap! documents #(assoc % dom-id document))
     (.on editor "change" (fn [cm change]
                            (let [change' (js->clj change)]
-                             ; (log (pos change' "from"))
                              (when-not (= "+merge" (change' "origin"))
                                (ld/with-site-fn site
                                 #(if-let [text (change' "text")]
-                                 (handle-change document other-editor-dom-id (cm/insert @document
+                                 (handle-change document (cm/insert @document
                                                             (pos change' "from") 
                                                             (pos change' "to")
                                                             text))
                                  
-                                 (handle-change document other-editor-dom-id (cm/delete @document
+                                 (handle-change document (cm/delete @document
                                                             (pos change' "from")
                                                             (pos change' "to")))))))))))
 
 (with-init! 
   (with-timeout 1000 ; FIXME use document ready
-                (set-up-editor "code1" document1 1 "code2")
-                (set-up-editor "code2" document2 2 "code1")))
+                (set-up-editor "code1" document1 1)
+                (set-up-editor "code2" document2 2)
+                (rpc/init)))
 
-; ; (def editor , )
-; (page "index.html"
-;   (:require
-;     [logoot-hoplon-castra.rpc :as rpc]
-;     [tailrecursion.hoplon.reload :refer [reload-all]]
-;     [clojure.browser.repl :as repl]
-;     [logoot.document :as d]))
+(defc= changes (do
+                (let [changes (map edn/map->changes (get rpc/recent-update :changes))
+                      ignore-site-1 (when @initialized 1)
+                      ignore-site-2 (when @initialized 2)]
+                  (doseq [change changes]
+                    (merge-changes (get @editors "code1") ignore-site-1 document1 change)
+                    (merge-changes (get @editors "code2") ignore-site-2 document2 change)
+                    (reset! initialized true)))))
 
-; (reload-all 1000)
-
-; (rpc/init)
-
-; (with-init! 
-;   (repl/connect "http://localhost:9000/repl"))
-
-; (html
-;   (head)
-;   (body
-;     (h1 (text "Hello, Hoplon and Castra! ~{rpc/random-number} ~{(d/new-document)}"))))
+(defn clear-all 
+  []
+  (rpc/clear!)
+  ; (.setValue (@editors "code1") "")
+  ; (.setValue (@editors "code2") "")
+  ; (reset! document1 (ld/new-document))
+  ; (reset! document2 (ld/new-document))
+  )
