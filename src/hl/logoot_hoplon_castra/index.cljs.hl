@@ -42,16 +42,14 @@
   [editor document changes]
   (let [[document' changes'] (m/merge-changes @document changes cm/pid->pos)]
     (doseq [[op & args :as change] changes'] ;; FIXME: Use core.match.
-      (println change)
       (case op
         :insert (let [[[line ch] content] args] 
                   (.replaceRange editor content (CodeMirror.Pos. line ch) nil "+merge"))
         :delete (let [[[line ch] [line' ch']] args]
                   (.replaceRange editor "" (CodeMirror.Pos. line ch) (CodeMirror.Pos. line' ch') "+merge"))
-        ;; FIXME: Raise error if unnknown change.
+        (throw js/Error "Unsupported merge operation; only :insert and :delete are supported.")
         ))
-    (reset! document document')
-    (println (ld/display @document))))
+    (reset! document document')))
 
 (defn handle-change 
   [document [new-document changes]]
