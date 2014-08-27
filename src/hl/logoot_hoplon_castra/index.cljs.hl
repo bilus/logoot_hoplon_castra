@@ -6,6 +6,7 @@
     [logoot.editors.code-mirror :as cm]
     [logoot.pid :as pid]
     [logoot.edn :as edn]
+    [logoot.merge :as m]
     [dly.core.debug :as debug]
     [logoot-hoplon-castra.rpc :as rpc]))
 
@@ -14,10 +15,6 @@
 (def document1 (atom (ld/new-document)))
 (def document2 (atom (ld/new-document)))
 (def editors (atom {})) ; Ugh!
-(def initialized (atom false))
-
-
-(declare clear-all)
 
 (html
   (head
@@ -26,14 +23,10 @@
     (script {:src "codemirror.js"}))
   (body
     (h1 :on-load #(js/alert "eu") "Hello, World!")
-    (p (button :on-click #(clear-all) "Clear!"))
+    (p (button :on-click #(rpc/clear!) "Clear!"))
     (textarea :id "code1" :name "code1" "")
     (textarea :id "code2" :name "code2" "")
     (p (text "ETAG: ~{rpc/etag}"))))
-
-(defn some? 
-  [x]
-  (not (nil? x)))
 
 (defn pos->vec 
   [pos]
@@ -45,41 +38,20 @@
       (get field)
       pos->vec))
 
-(defn get-document1
-  []
-  @document1)
-
-(defn get-document2
-  []
-  @document2)
-
 (defn merge-changes
-  [editor ignore-site document changes]
-  (let [inserts (:insert changes)
-        document' (ld/merge-inserts @document inserts)
-        deletes (:delete changes)
-        ignore? (fn [pid] (and 
-                            (some? ignore-site) 
-                            (= (pid/pid-site pid) ignore-site)))]
-    (when (seq inserts)
-      (doseq [[pid content] inserts
-              :let [[line ch] (cm/pid->pos document' pid)]
-              :when (not (ignore? pid))]
-        (.replaceRange editor content (CodeMirror.Pos. line ch) nil "+merge")))
-    
-    (when (seq deletes)
-      (let [document'' (loop [[pid & deletes'] deletes d document']
-                         (if pid
-                          (let [[line ch] (cm/pid->pos d pid)
-                                [line' ch'] (cm/pid->pos d (ld/next-pid d pid))]
-                            (when-not (ignore? pid)
-                              (.replaceRange editor "" (CodeMirror.Pos. line ch) (CodeMirror.Pos. line' ch') "+merge"))
-                            (recur deletes' (ld/merge-deletes d [pid])))
-                          d))]
-      (reset! document document'')))
-
-    
-    (println "document..." (ld/display @document))))
+  [editor document changes]
+  (let [[document' changes'] (m/merge-changes @document changes cm/pid->pos)]
+    (doseq [[op & args :as change] changes'] ;; FIXME: Use core.match.
+      (println change)
+      (case op
+        :insert (let [[[line ch] content] args] 
+                  (.replaceRange editor content (CodeMirror.Pos. line ch) nil "+merge"))
+        :delete (let [[[line ch] [line' ch']] args]
+                  (.replaceRange editor "" (CodeMirror.Pos. line ch) (CodeMirror.Pos. line' ch') "+merge"))
+        ;; FIXME: Raise error if unnknown change.
+        ))
+    (reset! document document')
+    (println (ld/display @document))))
 
 (defn handle-change 
   [document [new-document changes]]
@@ -113,19 +85,17 @@
                 (rpc/init)))
 
 (defc= changes (do
-                (let [changes (map edn/map->changes (get rpc/recent-update :changes))
-                      ignore-site-1 (when @initialized 1)
-                      ignore-site-2 (when @initialized 2)]
+                (let [changes (map edn/map->changes (get rpc/recent-update :changes))]
                   (doseq [change changes]
-                    (merge-changes (get @editors "code1") ignore-site-1 document1 change)
-                    (merge-changes (get @editors "code2") ignore-site-2 document2 change)
-                    (reset! initialized true)))))
+                    (merge-changes (get @editors "code1") document1 change)
+                    (merge-changes (get @editors "code2") document2 change)))))
 
-(defn clear-all 
+;; Console access.
+
+(defn get-document1
   []
-  (rpc/clear!)
-  ; (.setValue (@editors "code1") "")
-  ; (.setValue (@editors "code2") "")
-  ; (reset! document1 (ld/new-document))
-  ; (reset! document2 (ld/new-document))
-  )
+  @document1)
+
+(defn get-document2
+  []
+  @document2)

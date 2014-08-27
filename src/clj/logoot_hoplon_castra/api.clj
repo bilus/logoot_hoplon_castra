@@ -1,6 +1,7 @@
 (ns logoot-hoplon-castra.api
   (:require [tailrecursion.castra :refer [defrpc]]
-            [logoot.document :refer [new-document merge-changes display]]
+            [logoot.document :refer [new-document display]]
+            [logoot.merge :as m]
             [logoot.edn :as edn]))
 
 (def document (atom (new-document)))
@@ -9,7 +10,7 @@
 (defrpc push-changes [changes] 
   {:rpc/query ["ok"]}
   (println "push-changes/changes = " changes)
-  (swap! document #(merge-changes % (edn/map->changes changes)))
+  (swap! document #(first (m/merge-changes % (edn/map->changes changes))))
   (println "push-changes/document = " (display @document))
   (swap! change-history #(conj % (edn/map->changes changes))))
 

@@ -6372,9 +6372,9 @@
       setSelection(this, simpleSelection(top));
     }),
     replaceRange: function(code, from, to, origin) {
-    console.log("code = ", code);
-    console.log("from = ", from);
-    console.log("to = ", to);
+    // console.log("code = ", code);
+    // console.log("from = ", from);
+    // console.log("to = ", to);
 
       from = clipPos(this, from);
       to = to ? clipPos(this, to) : from;
